@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -13,6 +12,10 @@ pipeline {
         ECR_REGISTRY = '861097501014.dkr.ecr.us-east-1.amazonaws.com'
         BACKEND_REPO = 'minishop-backend'
         FRONTEND_REPO = 'minishop-frontend'
+
+        GITOPS_REPO = 'https://github.com/agha177/devops-minishop-gitops.git'
+        GITOPS_BRANCH = 'main'
+        GITOPS_OVERLAY = 'k8s/overlays/dev'
     }
 
     stages {
@@ -110,15 +113,72 @@ docker push "$ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG"
                 }
             }
         }
+
+        stage('Update GitOps Repository') {
+            steps {
+                dir('gitops-workspace') {
+                    deleteDir()
+
+                    withCredentials([
+                        gitUsernamePassword(
+                            credentialsId: 'github-gitops-credentials',
+                            gitToolName: 'Default'
+                        )
+                    ]) {
+                        sh '''#!/bin/bash
+set -euo pipefail
+set +x
+
+export GIT_TERMINAL_PROMPT=0
+
+git clone \
+  --branch "$GITOPS_BRANCH" \
+  --single-branch \
+  "$GITOPS_REPO" .
+
+git config user.name "MiniShop Jenkins CI"
+git config user.email "jenkins@minishop.local"
+
+cd "$GITOPS_OVERLAY"
+
+kustomize edit set image \
+  "$BACKEND_REPO=$ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG" \
+  "$FRONTEND_REPO=$ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG"
+
+RENDERED=$(mktemp)
+trap 'rm -f "$RENDERED"' EXIT
+
+kustomize build . > "$RENDERED"
+
+grep -F "image: $ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG" "$RENDERED"
+grep -F "image: $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG" "$RENDERED"
+
+git diff -- kustomization.yaml
+
+git add kustomization.yaml
+
+if git diff --cached --quiet; then
+    echo "No GitOps changes required"
+else
+    git commit -m "Deploy MiniShop dev images: $IMAGE_TAG"
+    git push origin "$GITOPS_BRANCH"
+
+    echo "GitOps repository updated successfully"
+fi
+'''
+                    }
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo "MiniShop images published with tag ${env.IMAGE_TAG}"
+            echo "MiniShop images published and GitOps configuration ready for tag ${env.IMAGE_TAG}"
         }
 
         failure {
-            echo 'MiniShop CI failed. Inspect the failed stage.'
+            echo 'MiniShop pipeline failed. Inspect the failed stage.'
         }
     }
 }
