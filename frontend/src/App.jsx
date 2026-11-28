@@ -118,8 +118,8 @@ function App() {
   return (
     <div className="container">
       <header>
-        <h1>MiniShop</h1>
-        <p>DevOps E-Commerce Project</p>
+        <h1>MiniShop v2</h1>
+        <p>Powered by Jenkins, AWS ECR and Argo CD</p>
 
         <div className="cart-count">
           Cart: {cart.length} items
