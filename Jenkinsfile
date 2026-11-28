@@ -6,6 +6,10 @@ pipeline {
         disableConcurrentBuilds()
         skipDefaultCheckout(true)
     }
+    
+    triggers {
+        pollSCM('H/2 * * * *')
+    }
 
     environment {
         AWS_DEFAULT_REGION = 'us-east-1'
